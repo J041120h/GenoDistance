@@ -5,17 +5,17 @@ import scanpy as sc
 import anndata as ad
 import harmonypy as hm
 import matplotlib.pyplot as plt
-from Harmony import treecor_harmony
+from Harmony import treecor_harmony,visualization_harmony
 from EMD import EMD_distances
 from VectorDistance import sample_distance
 from ChiSquare import chi_square_distance
 from jensenshannon import jensen_shannon_distance
+from Adjustment import print_obs_columns 
 def main():
     output_dir = "/users/harry/desktop/GenoDistance/result"
-    count_path = "/users/harry/output_matrix.csv"
-    sample_meta_path = "/users/harry/desktop/GenoDistance/Data/raw_data_sample_meta.csv"
-    summary_sample_csv_path = "/users/harry/desktop/GenoDistance/result/summary_sample.csv"
-    summary_cell_csv_path = "/users/harry/desktop/GenoDistance/result/summary_cell.csv"
+    h5ad_path = "/users/harry/desktop/GenoDistance/Data/count_data.h5ad"
+    cell_meta_path="/users/harry/desktop/GenoDistance/Data/cell_data.csv"
+    sample_meta_path = "/users/harry/desktop/GenoDistance/Data/sample_data.csv"
     method = "hamming"
     cell_group_weight = 0.8
     min_cells= 100
@@ -25,7 +25,6 @@ def main():
     vars_to_regress=['sample']
     resolution=0.5
     verbose=True
-    cell_meta_path="/users/harry/desktop/GenoDistance/Data/integrated_cellmeta.csv"
     num_PCs=20
     num_harmony=20
     markers = [
@@ -50,11 +49,21 @@ def main():
         'matching',
         'dice',
     ]
+    summary_cell_csv_path = "/users/harry/desktop/GenoDistance/result/summary_cell.csv"
+    summary_sample_csv_path = "/users/harry/desktop/GenoDistance/result/summary_sample.csv"
 
 
-    treecor_harmony(count_path, sample_meta_path, output_dir,cell_meta_path, markers)
+    AnnData_cell,AnnData_sample = treecor_harmony(h5ad_path, sample_meta_path, output_dir,cell_meta_path, vars_to_regress= ["batch"])
     AnnData_cell = sc.read_h5ad("/users/harry/desktop/GenoDistance/result/harmony/adata_cell.h5ad")
     AnnData_sample = sc.read_h5ad("/users/harry/desktop/GenoDistance/result/harmony/adata_sample.h5ad")
+    visualization_harmony(
+        AnnData_cell,
+        AnnData_sample,
+        output_dir,
+        severity_col="sev.level",
+        verbose=True
+    )
+    
     EMD_distances(AnnData_sample, os.path.join(output_dir, 'sample_level_EMD'), summary_sample_csv_path)
     EMD_distances(AnnData_cell, os.path.join(output_dir, 'cell_level_EMD'), summary_cell_csv_path)
     for md in methods:
@@ -65,6 +74,10 @@ def main():
     jensen_shannon_distance(AnnData_sample, os.path.join(output_dir, 'jensen_shannon_sample'), summary_sample_csv_path)
     chi_square_distance(AnnData_sample, os.path.join(output_dir, 'Chi_square_cell'), summary_cell_csv_path)
     jensen_shannon_distance(AnnData_sample, os.path.join(output_dir, 'jensen_shannon_cell'), summary_cell_csv_path)
+
+    print("End of Process")
+    print("End of Process")
+    print("End of Process")
 
 if __name__ == '__main__':
     main()
