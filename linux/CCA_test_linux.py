@@ -4,14 +4,16 @@ from sklearn.cross_decomposition import CCA
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+from sklearn.cross_decomposition import CCA
 from anndata import AnnData
 import time
 from pseudobulk import compute_pseudobulk_dataframes
 from PCA import process_anndata_with_pca
 from CCA import load_severity_levels
 from CellType import cell_types, cell_type_assign
+from linux.CellType_linux import cell_types_linux, cell_type_assign_linux
 
-def find_optimal_cell_resolution(
+def find_optimal_cell_resolution_linux(
     AnnData_cell,
     AnnData_sample,
     output_dir,
@@ -27,9 +29,9 @@ def find_optimal_cell_resolution(
     import os
 
     score_counter = dict()
-    for resolution in np.arange(0.01, 1.01, 0.01):
+    for resolution in np.arange(0.01, 1.01, 0.1):
         print(f"\n\nTesting resolution: {resolution}\n\n")
-        cell_types(
+        cell_types_linux(
             AnnData_cell,
             cell_column='cell_type',
             Save=False,
@@ -42,12 +44,13 @@ def find_optimal_cell_resolution(
             num_PCs=20,
             verbose=False
         )
-        cell_type_assign(AnnData_cell, AnnData_sample, Save=False, output_dir=output_dir, verbose=False)
+        cell_type_assign_linux(AnnData_cell, AnnData_sample, Save=False, output_dir=output_dir, verbose=False)
         pseudobulk = compute_pseudobulk_dataframes(AnnData_sample, 'batch', 'sample', 'cell_type', output_dir)
-        process_anndata_with_pca(adata=AnnData_sample, pseudobulk=pseudobulk, output_dir=output_dir, adata_path=AnnData_sample_path, verbose=False)
+        process_anndata_with_pca(adata=AnnData_sample, pseudobulk=pseudobulk, output_dir=output_dir, verbose=False)
 
         pca_coords = AnnData_sample.uns[column]
-        pca_coords_2d = pca_coords[:, :2]
+        pca_coords_2d = pca_coords.iloc[:, :2].values
+
 
         samples = AnnData_sample.obs["sample"].values.unique()
         sev_levels_2d = load_severity_levels(summary_sample_csv_path, samples, sev_col=sev_col)
@@ -68,7 +71,7 @@ def find_optimal_cell_resolution(
     print(f"Best resolution from first pass: {best_resolution}")
     fine_score_counter = dict()
 
-    for resolution in np.arange(max(0.1, best_resolution - 0.1), min(1.0, best_resolution + 0.1) + 0.01, 0.01):
+    for resolution in np.arange(max(0.1, best_resolution - 0.5), min(1.0, best_resolution + 0.5) + 0.01, 0.01):
         cell_types(
             AnnData_cell,
             cell_column='cell_type',
