@@ -1,13 +1,13 @@
 # ===== Harmony Preprocessing Parameters =====
-h5ad_path: "/users/hjiang/GenoDistance/Data/count_data.h5ad"
-sample_meta_path: "/users/hjiang/GenoDistance/Data/sample_data.csv"
-output_dir: "/users/hjiang/GenoDistance/result"
-sample_col: "sample"
+h5ad_path: "/users/hjiang/SingleCell/count_data.h5ad"
+sample_meta_path: null
+output_dir: "/users/hjiang/GenoDistance/SingleCell/result"
+sample_col: "Sample"
 cell_column: "cell_type"
 cell_meta_path: null
-batch_col: 'batch'
+batch_col: 'Batch'
 markers: null
-cluster_resolution: 0.62
+cluster_resolution: 0.8
 num_PCs: 20
 num_harmony: 30
 num_features: 2000
@@ -32,7 +32,6 @@ cell_type_save: true
 assign_save: true
 
 # ===== Pseudobulk Parameters =====
-sample_col: "sample"
 celltype_col: "cell_type"
 pseudobulk_output_dir: null
 n_features: 2000
@@ -43,17 +42,16 @@ pseudobulk_verbose: true
 n_expression_pcs: 10
 n_proportion_pcs: 10
 pca_output_dir: null
-AnnData_sample_path: "/users/hjiang/GenoDistance/result/harmony/adata_sample.h5ad"
+AnnData_sample_path: "/users/hjiang/GenoDistance/SingleCell/result/harmony/adata_sample.h5ad"
 pca_verbose: true
 
 # ===== Trajectory Analysis Parameters =====
-trajectory_supervised: true
+trajectory_supervised: false
 cca_output_dir: null
 sev_col_cca: "sev.level"
 cca_optimal_cell_resolution: false
-cca_pvalue: true
-grouping_columns:
-  - "sev.level"
+cca_pvalue: false
+grouping_columns: null
 trajectory_verbose: true
 TSCAN_origin: null
 
@@ -61,15 +59,15 @@ TSCAN_origin: null
 fdr_threshold: 0.05
 effect_size_threshold: 1
 top_n_genes: 100
-trajectory_diff_gene_covariate: null
+trajectory_diff_gene_covariate: None
 num_splines: 5
 spline_order: 3
-trajectory_diff_gene_output_dir: null
+trajectory_diff_gene_output_dir: None
 trajectory_diff_gene_verbose: True
 top_gene_number: 30
 
 # ===== Paths for Skipping Preprocessing =====
-AnnData_cell_path:  "/users/hjiang/GenoDistance/result/harmony/adata_cell.h5ad"
+AnnData_cell_path: "/users/hjiang/GenoDistance/SingleCell/result/harmony/adata_cell.h5ad"
 
 # ===== Sample Distance Parameters =====
 summary_sample_csv_path: null
@@ -80,7 +78,7 @@ verbose_Visualization: true
 trajectory_visalization_label:
   - "sev.level"
 age_bin_size: null
-dot_size: 3
+dot_size: 10
 
 plot_dendrogram_flag: true
 plot_cell_umap_by_plot_group_flag: false
@@ -96,11 +94,11 @@ plot_pseudobulk_batch_test_proportion_flag: false
 
 # ===== Process Control Flags =====
 preprocessing: false
-cell_type_cluster: true
+cell_type_cluster: false
 sample_distance_calculation: false
 DimensionalityReduction: true
 trajectory_analysis: true
-trajectory_differential_gene: false
-visualize_data: true
+trajectory_differential_gene: true
+visualize_data: false
 initialization: false
-use_gpu: true
+use_gpu: false
