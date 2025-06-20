@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from anndata import AnnData
 import time
 from DR import process_anndata_with_pca
-from CellType import cell_types, cell_type_assign
+from ATAC_cell_type import cell_types_atac, cell_type_assign_atac
 from pseudo_adata import compute_pseudobulk_adata
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from threading import Lock
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Global lock for thread-safe operations
 result_lock = Lock()
 
-def process_single_resolution(
+def process_single_resolution_atac(
     resolution: float,
     AnnData_cell: AnnData,
     AnnData_sample: AnnData,
@@ -31,19 +31,21 @@ def process_single_resolution(
     column: str,
     sev_col: str,
     sample_col: str,
+    use_rep: str = 'X_DM_harmony',
+    num_DMs: int = 20,
     verbose: bool = False
 ) -> Tuple[float, Optional[float]]:
     """
-    Process a single resolution value and return the CCA score.
+    Process a single resolution value and return the CCA score for ATAC data.
     
     Parameters:
     -----------
     resolution : float
         Clustering resolution to test
     AnnData_cell : AnnData
-        Cell-level AnnData object
+        Cell-level AnnData object (ATAC)
     AnnData_sample : AnnData  
-        Sample-level AnnData object
+        Sample-level AnnData object (ATAC)
     output_dir : str
         Output directory for results
     column : str
@@ -52,6 +54,10 @@ def process_single_resolution(
         Column name for severity levels in pseudobulk_anndata.obs
     sample_col : str
         Column name for sample identifiers
+    use_rep : str
+        Representation to use for neighborhood graph (default: 'X_DM_harmony')
+    num_DMs : int
+        Number of diffusion map components for neighborhood graph
     verbose : bool
         Whether to print detailed progress
         
@@ -74,24 +80,25 @@ def process_single_resolution(
         if 'cell_type' in adata_sample_copy.obs.columns:
             adata_sample_copy.obs.drop(columns=['cell_type'], inplace=True, errors='ignore')
         
-        # Perform clustering
-        cell_types(
+        # Perform clustering using ATAC-specific function
+        cell_types_atac(
             adata_cell_copy,
             cell_column='cell_type',
             Save=False,
             output_dir=resolution_dir,
             cluster_resolution=resolution,
-            markers=None,
+            use_rep=use_rep,
+            peaks=None,
             method='average',
             metric='euclidean',
             distance_mode='centroid',
-            num_PCs=20,
+            num_DMs=num_DMs,
             verbose=verbose
         )
         
-        # Assign cell types to samples
-        cell_type_assign(adata_cell_copy, adata_sample_copy, Save=False, 
-                        output_dir=resolution_dir, verbose=verbose)
+        # Assign cell types to samples using ATAC-specific function
+        cell_type_assign_atac(adata_cell_copy, adata_sample_copy, Save=False, 
+                             output_dir=resolution_dir, verbose=verbose)
         
         # Compute pseudobulk data
         pseudobulk_dict, pseudobulk_adata = compute_pseudobulk_adata(
@@ -115,16 +122,16 @@ def process_single_resolution(
             verbose=verbose
         )
 
-        # Get PCA coordinates
+        # Get dimension reduction coordinates
         if column not in adata_sample_copy.uns:
             logger.warning(f"Column {column} not found in AnnData.uns for resolution {resolution:.3f}")
             return resolution, None
             
-        pca_coords = adata_sample_copy.uns[column]
-        if hasattr(pca_coords, 'iloc'):
-            pca_coords_2d = pca_coords.iloc[:, :2].values
+        coords = adata_sample_copy.uns[column]
+        if hasattr(coords, 'iloc'):
+            coords_2d = coords.iloc[:, :2].values
         else:
-            pca_coords_2d = pca_coords[:, :2]
+            coords_2d = coords[:, :2]
         
         # Get severity levels
         if sev_col not in pseudobulk_adata.obs.columns:
@@ -141,7 +148,7 @@ def process_single_resolution(
         sev_levels_2d = sev_levels.reshape(-1, 1)
         
         # Ensure matching dimensions
-        if len(sev_levels_2d) != pca_coords_2d.shape[0]:
+        if len(sev_levels_2d) != coords_2d.shape[0]:
             logger.warning(f"Dimension mismatch at resolution {resolution:.3f}")
             return resolution, None
         
@@ -149,8 +156,8 @@ def process_single_resolution(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             cca = CCA(n_components=1)
-            cca.fit(pca_coords_2d, sev_levels_2d)
-            U, V = cca.transform(pca_coords_2d, sev_levels_2d)
+            cca.fit(coords_2d, sev_levels_2d)
+            U, V = cca.transform(coords_2d, sev_levels_2d)
             first_component_score = np.corrcoef(U[:, 0], V[:, 0])[0, 1]
         
         # Clean up temporary directory
@@ -166,27 +173,29 @@ def process_single_resolution(
         logger.error(f"Error processing resolution {resolution:.3f}: {str(e)}")
         return resolution, None
 
-def find_optimal_cell_resolution(
+def find_optimal_cell_resolution_atac(
     AnnData_cell: AnnData,
     AnnData_sample: AnnData,
     output_dir: str,
     column: str,
     sev_col: str = "sev.level",
     sample_col: str = "sample",
+    use_rep: str = 'X_DM_harmony',
+    num_DMs: int = 20,
     n_threads: int = None,
     use_processes: bool = False,
     verbose: bool = True
 ) -> float:
     """
     Find optimal clustering resolution by maximizing CCA correlation between 
-    dimension reduction and severity levels using multithreading.
+    dimension reduction and severity levels using multithreading for ATAC data.
     
     Parameters:
     -----------
     AnnData_cell : AnnData
-        Cell-level AnnData object
+        Cell-level AnnData object (ATAC)
     AnnData_sample : AnnData  
-        Sample-level AnnData object
+        Sample-level AnnData object (ATAC)
     output_dir : str
         Output directory for results
     column : str
@@ -195,6 +204,10 @@ def find_optimal_cell_resolution(
         Column name for severity levels in pseudobulk_anndata.obs
     sample_col : str
         Column name for sample identifiers
+    use_rep : str
+        Representation to use for neighborhood graph (default: 'X_DM_harmony')
+    num_DMs : int
+        Number of diffusion map components for neighborhood graph
     n_threads : int, optional
         Number of threads to use. If None, uses CPU count
     use_processes : bool
@@ -213,8 +226,9 @@ def find_optimal_cell_resolution(
     if n_threads is None:
         n_threads = os.cpu_count() or 4
     
-    print(f"Starting resolution optimization for {column}...")
+    print(f"Starting ATAC resolution optimization for {column}...")
     print(f"Using {n_threads} {'processes' if use_processes else 'threads'}")
+    print(f"Using representation: {use_rep} with {num_DMs} components")
     print(f"Testing resolutions from 0.01 to 1.00...")
 
     # Create executor (process or thread based)
@@ -227,7 +241,7 @@ def find_optimal_cell_resolution(
         # Submit all tasks
         future_to_resolution = {
             executor.submit(
-                process_single_resolution,
+                process_single_resolution_atac,
                 resolution,
                 AnnData_cell,
                 AnnData_sample,
@@ -235,6 +249,8 @@ def find_optimal_cell_resolution(
                 column,
                 sev_col,
                 sample_col,
+                use_rep,
+                num_DMs,
                 verbose
             ): resolution
             for resolution in coarse_resolutions
@@ -255,7 +271,7 @@ def find_optimal_cell_resolution(
                 print(f"Resolution {resolution:.2f} generated an exception: {exc}")
 
     if not score_counter:
-        raise ValueError("No valid CCA scores obtained. Check your data and parameters.")
+        raise ValueError("No valid CCA scores obtained. Check your ATAC data and parameters.")
 
     # Find best resolution from first pass
     best_resolution = max(score_counter, key=score_counter.get)
@@ -282,7 +298,7 @@ def find_optimal_cell_resolution(
             
             future_to_resolution = {
                 executor.submit(
-                    process_single_resolution,
+                    process_single_resolution_atac,
                     resolution,
                     AnnData_cell,
                     AnnData_sample,
@@ -290,6 +306,8 @@ def find_optimal_cell_resolution(
                     column,
                     sev_col,
                     sample_col,
+                    use_rep,
+                    num_DMs,
                     False  # Less verbose for fine-tuning
                 ): resolution
                 for resolution in batch
@@ -323,10 +341,10 @@ def find_optimal_cell_resolution(
     df_results = pd.DataFrame(final_results.items(), columns=["resolution", "score"])
     df_results = df_results.sort_values("resolution")
 
-    output_dir_results = os.path.join(output_dir, "CCA_test")
+    output_dir_results = os.path.join(output_dir, "CCA_test_atac")
     os.makedirs(output_dir_results, exist_ok=True)
     
-    to_csv_path = os.path.join(output_dir_results, f"resolution_scores_{column}.csv")
+    to_csv_path = os.path.join(output_dir_results, f"resolution_scores_atac_{column}.csv")
     df_results.to_csv(to_csv_path, index=False)
 
     # Create plot
@@ -337,41 +355,47 @@ def find_optimal_cell_resolution(
                 label=f'Best Resolution: {final_best_resolution:.3f}')
     plt.xlabel("Resolution")
     plt.ylabel("CCA Score")
-    plt.title(f"Resolution vs. CCA Score ({column})")
+    plt.title(f"ATAC Resolution vs. CCA Score ({column})")
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 
-    plot_path = os.path.join(output_dir_results, f"resolution_vs_cca_score_{column}.png")
+    plot_path = os.path.join(output_dir_results, f"resolution_vs_cca_score_atac_{column}.png")
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
 
     print(f"Plot saved to: {plot_path}")
     print(f"Resolution scores saved to: {to_csv_path}")
-    print(f"\n[Find Optimal Resolution] Total runtime: {time.time() - start_time:.2f} seconds\n")
+    print(f"\n[Find Optimal Resolution ATAC] Total runtime: {time.time() - start_time:.2f} seconds\n")
 
     return final_best_resolution
 
 
-# Additional utility function for running multiple columns in parallel
-def find_optimal_resolutions_multiple_columns(
+# Additional utility function for running multiple columns in parallel for ATAC
+def find_optimal_resolutions_multiple_columns_atac(
     AnnData_cell: AnnData,
     AnnData_sample: AnnData,
     output_dir: str,
     columns: list,
     sev_col: str = "sev.level",
     sample_col: str = "sample",
+    use_rep: str = 'X_DM_harmony',
+    num_DMs: int = 20,
     n_threads: int = None,
     use_processes: bool = False
 ) -> Dict[str, float]:
     """
-    Find optimal resolutions for multiple columns in parallel.
+    Find optimal resolutions for multiple columns in parallel for ATAC data.
     
     Parameters:
     -----------
     columns : list
         List of column names to process
-    Other parameters same as find_optimal_cell_resolution
+    use_rep : str
+        Representation to use for neighborhood graph (default: 'X_DM_harmony')
+    num_DMs : int
+        Number of diffusion map components for neighborhood graph
+    Other parameters same as find_optimal_cell_resolution_atac
     
     Returns:
     --------
@@ -390,13 +414,15 @@ def find_optimal_resolutions_multiple_columns(
     with ThreadPoolExecutor(max_workers=column_threads) as executor:
         future_to_column = {
             executor.submit(
-                find_optimal_cell_resolution,
+                find_optimal_cell_resolution_atac,
                 AnnData_cell,
                 AnnData_sample,
                 output_dir,
                 column,
                 sev_col,
                 sample_col,
+                use_rep,
+                num_DMs,
                 resolution_threads,
                 use_processes
             ): column
@@ -408,14 +434,14 @@ def find_optimal_resolutions_multiple_columns(
             try:
                 optimal_res = future.result()
                 results[column] = optimal_res
-                print(f"Completed optimization for {column}: {optimal_res:.3f}")
+                print(f"Completed ATAC optimization for {column}: {optimal_res:.3f}")
             except Exception as exc:
                 print(f"Column {column} generated an exception: {exc}")
                 results[column] = None
     
     return results
 
-def cca_pvalue_test(
+def cca_pvalue_test_atac(
     pseudo_adata: AnnData,
     column: str,
     input_correlation: float,
@@ -425,15 +451,15 @@ def cca_pvalue_test(
     verbose: bool = True
 ):
     """
-    Perform CCA p-value test using pseudo anndata (sample by gene).
+    Perform CCA p-value test using pseudo anndata (sample by peak) for ATAC data.
     
     Parameters:
     -----------
     pseudo_adata : AnnData
-        Pseudo anndata object where observations are samples and variables are genes.
+        Pseudo anndata object where observations are samples and variables are peaks.
         Must contain severity levels in pseudo_adata.obs[sev_col].
     column : str
-        Key in pseudo_adata.uns containing the coordinates (e.g., PCA coordinates)
+        Key in pseudo_adata.uns containing the coordinates (e.g., diffusion map coordinates)
     input_correlation : float
         Observed correlation to test against
     output_directory : str
@@ -444,7 +470,7 @@ def cca_pvalue_test(
         Column name for severity levels in pseudo_adata.obs (default: "sev.level")
     verbose : bool
         Whether to print timing information (default: True)
-        
+    
     Returns:
     --------
     float
@@ -455,53 +481,39 @@ def cca_pvalue_test(
     import numpy as np
     import matplotlib.pyplot as plt
     from sklearn.cross_decomposition import CCA
-    from sklearn.preprocessing import LabelEncoder
     
     start_time = time.time() if verbose else None
-    
-    output_directory = os.path.join(output_directory, "CCA_test")
+    output_directory = os.path.join(output_directory, "CCA_test_atac")
     os.makedirs(output_directory, exist_ok=True)
     
     # Extract coordinates from pseudo_adata.uns
-    pca_coords = pseudo_adata.uns[column]
-    if pca_coords.shape[1] < 2:
+    coords = pseudo_adata.uns[column]
+    if coords.shape[1] < 2:
         raise ValueError("Coordinates must have at least 2 components for 2D analysis.")
     
     # Get first 2 components
-    pca_coords_2d = pca_coords.iloc[:, :2].values if hasattr(pca_coords, "iloc") else pca_coords[:, :2]
+    coords_2d = coords.iloc[:, :2].values if hasattr(coords, "iloc") else coords[:, :2]
     
     # Check if severity column exists
     if sev_col not in pseudo_adata.obs.columns:
         raise KeyError(f"pseudo_adata.obs must have a '{sev_col}' column.")
     
     # Get severity levels directly from pseudo_adata.obs
-    sev_levels = pseudo_adata.obs[sev_col]
+    sev_levels = pseudo_adata.obs[sev_col].values
     
-    if len(sev_levels) != pca_coords_2d.shape[0]:
+    if len(sev_levels) != coords_2d.shape[0]:
         raise ValueError("Mismatch between number of coordinate rows and number of samples.")
     
-    # Convert categorical/string severity levels to numerical values
-    if hasattr(sev_levels, 'cat'):  # pandas Categorical
-        # Use category codes for categorical data
-        sev_levels_numeric = sev_levels.cat.codes.values
-    elif sev_levels.dtype == 'object':  # string data
-        # Use LabelEncoder for string data
-        le = LabelEncoder()
-        sev_levels_numeric = le.fit_transform(sev_levels.values)
-    else:
-        # Already numeric
-        sev_levels_numeric = sev_levels.values
-    
     # Reshape for CCA (needs 2D array)
-    sev_levels_2d = sev_levels_numeric.reshape(-1, 1)
+    sev_levels_1d = sev_levels.flatten()
     
     # Perform permutation test
     simulated_scores = []
-    for i in range(num_simulations):  # Fixed the syntax error here
-        permuted = np.random.permutation(sev_levels_numeric).reshape(-1, 1)
+    for _ in range(num_simulations):
+        permuted = np.random.permutation(sev_levels_1d).reshape(-1, 1)
         cca = CCA(n_components=1)
-        cca.fit(pca_coords_2d, permuted)
-        U, V = cca.transform(pca_coords_2d, permuted)
+        cca.fit(coords_2d, permuted)
+        U, V = cca.transform(coords_2d, permuted)
         corr = np.corrcoef(U[:, 0], V[:, 0])[0, 1]
         simulated_scores.append(corr)
     
@@ -512,22 +524,24 @@ def cca_pvalue_test(
     plt.figure(figsize=(8, 5))
     plt.hist(simulated_scores, bins=30, alpha=0.7, edgecolor='black')
     plt.axvline(input_correlation, color='red', linestyle='dashed', linewidth=2,
-                label=f'Observed corr: {input_correlation:.3f} (p={p_value:.4f})')
+               label=f'Observed corr: {input_correlation:.3f} (p={p_value:.4f})')
     plt.xlabel('Simulated Correlation Scores')
     plt.ylabel('Frequency')
-    plt.title('Permutation Test: CCA Correlations')
+    plt.title('ATAC Permutation Test: CCA Correlations')
     plt.legend()
-    plot_path = os.path.join(output_directory, f"cca_pvalue_distribution_{column}.png")
+    plot_path = os.path.join(output_directory, f"cca_pvalue_distribution_atac_{column}.png")
     plt.savefig(plot_path, dpi=300)
     plt.close()
     
     # Save results to file
-    with open(os.path.join(output_directory, f"cca_pvalue_result_{column}.txt"), "w") as f:
+    with open(os.path.join(output_directory, f"cca_pvalue_result_atac_{column}.txt"), "w") as f:
+        f.write(f"ATAC data analysis\n")
         f.write(f"Observed correlation: {input_correlation}\n")
         f.write(f"P-value: {p_value}\n")
     
-    print(f"P-value for observed correlation {input_correlation}: {p_value}")
+    print(f"ATAC P-value for observed correlation {input_correlation}: {p_value}")
+    
     if verbose:
-        print(f"[CCA p-test] Runtime: {time.time() - start_time:.2f} seconds")
+        print(f"[CCA p-test ATAC] Runtime: {time.time() - start_time:.2f} seconds")
     
     return p_value
