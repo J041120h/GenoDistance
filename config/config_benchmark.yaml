@@ -1,15 +1,15 @@
 # ========================================
 # MAIN PIPELINE PARAMETERS
 # ========================================
-output_dir: "/dcs07/hongkai/data/harry/result/Benchmark"
+output_dir: "/dcs07/hongkai/data/harry/result/Benchmark/covid_25_sample"
 
 # ========================================
 # PIPELINE CONTROL FLAGS
 # ========================================
 # Overall pipeline control
-run_rna_pipeline: false
+run_rna_pipeline: true
 run_atac_pipeline: false
-run_multiomics_pipeline: true
+run_multiomics_pipeline: false
 
 # System configuration
 use_gpu: true
@@ -21,24 +21,24 @@ save_intermediate: true
 # RNA PIPELINE PARAMETERS
 # ========================================
 # Required RNA parameters
-rna_count_data_path: "/dcl01/hongkai/data/data/hjiang/Data/paired/rna/all.h5ad"
-rna_sample_meta_path: null
+rna_count_data_path: "/dcl01/hongkai/data/data/hjiang/Data/covid_data/Benchmark/count_data_subsample_25samples.h5ad"
+rna_sample_meta_path: '/dcl01/hongkai/data/data/hjiang/Data/covid_data/sample_data.csv'
 rna_output_dir: null
 
 # RNA Process Control Flags
 rna_preprocessing: false
-rna_cell_type_cluster: true
-rna_dimensionality_reduction: true
+rna_cell_type_cluster: false
+rna_dimensionality_reduction: false
 rna_sample_distance_calculation: false
-rna_trajectory_analysis: false
+rna_trajectory_analysis: true
 rna_trajectory_dge: false
 rna_sample_cluster: false
 rna_cluster_dge: false
-rna_visualize_data: false
+rna_visualize_data: true
 
 # RNA Paths for Skipping Processes
-rna_anndata_cell_path: "/dcl01/hongkai/data/data/hjiang/result/harmony/adata_cell.h5ad"
-rna_anndata_sample_path: "/dcl01/hongkai/data/data/hjiang/result/harmony/adata_sample.h5ad"
+rna_anndata_cell_path: null
+rna_anndata_sample_path: null
 rna_pseudobulk_adata_path: null
 
 # RNA Basic Parameters
@@ -76,7 +76,7 @@ rna_cell_type_annotation_custom_model_path: null
 
 # RNA Pseudobulk Parameters
 rna_celltype_col: "cell_type"
-rna_pseudobulk_output_dir: "/dcl01/hongkai/data/data/hjiang/result/pseudobulk"
+rna_pseudobulk_output_dir: null
 rna_pseudobulk_n_features: 2000
 rna_pseudobulk_verbose: true
 
@@ -93,7 +93,7 @@ rna_n_components_for_cca: 2
 rna_cca_output_dir: null
 rna_sev_col_cca: "sev.level"
 rna_cca_optimal_cell_resolution: true
-rna_cca_pvalue: false
+rna_cca_pvalue: true
 rna_trajectory_verbose: true
 rna_tscan_origin: null
 
