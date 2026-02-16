@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
 Improved Multimodal Integration Benchmark with Trajectory Analysis
 
@@ -9,12 +8,15 @@ Evaluates multimodal embeddings based on three criteria:
 2. Modality mixing: modalities should be well-mixed (iLISI_norm, ASW_batch on modality)
 3. Trajectory alignment: embedding should preserve age-based trajectory (CCA correlation)
 
+KEY CHANGE: All metrics computed using only the first 2 dimensions (PC1 & PC2).
+
 Improvements over original:
 - Professional visualizations with enhanced styling
 - Permutation testing for statistical significance
 - Organized output directory structure with method subfolders
 - Better error handling and debugging
 - Comprehensive result aggregation
+- **Decoupled input/output: Uses only first 2 dims for metrics, full embedding for viz**
 
 Usage:
     results = evaluate_multimodal_integration(
@@ -27,6 +29,7 @@ Usage:
 """
 
 from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
@@ -41,6 +44,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import silhouette_score, silhouette_samples
 from sklearn.cross_decomposition import CCA
 from sklearn.decomposition import PCA
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -59,7 +63,6 @@ plt.rcParams['axes.spines.right'] = False
 
 warnings.filterwarnings('ignore')
 
-
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -67,10 +70,14 @@ warnings.filterwarnings('ignore')
 @dataclass
 class BenchmarkConfig:
     """Configuration for multimodal integration benchmark."""
+    
     # KNN settings
     k_neighbors: int = 15
     distance_metric: str = "euclidean"
     include_self: bool = False
+    
+    # Dimension settings - NEW
+    n_dims_for_metrics: int = 2  # Use only first 2 dims for all metrics
     
     # Permutation testing
     n_permutations: int = 1000
@@ -141,7 +148,6 @@ def align_data(md: pd.DataFrame, emb: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Da
     print(f"\n1. Input sizes:")
     print(f"   - Metadata: {len(md)} samples")
     print(f"   - Embedding: {len(emb)} samples")
-    
     print(f"\n2. Sample name examples (first 5):")
     print(f"   - Metadata index: {list(md.index[:5])}")
     print(f"   - Embedding index: {list(emb.index[:5])}")
@@ -180,6 +186,21 @@ def align_data(md: pd.DataFrame, emb: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Da
     return md_aligned, emb_aligned
 
 
+def extract_first_n_dims(emb: np.ndarray, n_dims: int = 2) -> np.ndarray:
+    """
+    Extract the first n dimensions from embedding.
+    If embedding has fewer than n_dims, pad with zeros.
+    """
+    if emb.shape[1] >= n_dims:
+        return emb[:, :n_dims].copy()
+    else:
+        # Pad with zeros if needed
+        padded = np.zeros((emb.shape[0], n_dims))
+        padded[:, :emb.shape[1]] = emb
+        print(f"   WARNING: Embedding has only {emb.shape[1]} dims, padding to {n_dims} with zeros")
+        return padded
+
+
 # =============================================================================
 # Metric 1: Paired Sample Distance
 # =============================================================================
@@ -194,9 +215,10 @@ def compute_paired_distance(
     """
     Compute average distance between paired samples (same sample_id, different modality).
     Lower distance = better pairing/alignment of modalities.
+    
+    NOTE: Uses only the dimensions provided in emb (should be first 2 dims).
     """
     sample_id_to_idx: Dict[str, Dict[str, int]] = {}
-    
     for i, (idx, row) in enumerate(md.iterrows()):
         sid = str(row[sample_id_col])
         mod = str(row[modality_col])
@@ -236,6 +258,7 @@ def compute_paired_distance(
         }
     
     paired_distances = np.array(paired_distances)
+    
     return {
         "n_pairs": len(paired_distances),
         "mean_paired_distance": float(np.mean(paired_distances)),
@@ -292,6 +315,8 @@ def compute_modality_mixing(
     """
     Compute modality mixing metrics: iLISI and ASW-batch.
     Higher iLISI_norm and ASW_batch = better modality mixing.
+    
+    NOTE: Uses only the dimensions provided in emb (should be first 2 dims).
     """
     modalities_str = md[modality_col].astype(str).values
     unique_modalities, labels_int = np.unique(modalities_str, return_inverse=True)
@@ -299,6 +324,7 @@ def compute_modality_mixing(
     n_samples = emb.shape[0]
     
     k_eff = min(max(int(k), 1), n_samples)
+    
     nn = NearestNeighbors(n_neighbors=k_eff, metric="euclidean", n_jobs=-1)
     nn.fit(emb)
     _, knn_idx = nn.kneighbors(emb)
@@ -359,12 +385,13 @@ def compute_trajectory_analysis(
     """
     Compute trajectory analysis using CCA alignment with age.
     
-    Uses the first 2 dimensions (PC1 and PC2) for CCA.
+    NOTE: emb should already be 2D (first 2 dimensions).
+    
     Higher CCA score = better trajectory/age alignment preserved in embedding.
     """
     # Check embedding dimensions
-    if emb.shape[1] < 2:
-        raise ValueError("Need at least 2 dimensions for trajectory CCA.")
+    if emb.shape[1] != 2:
+        raise ValueError(f"Expected 2D embedding for trajectory analysis, got {emb.shape[1]} dims")
     
     # Get age values (use unique sample_id to avoid duplicate modalities)
     sample_ages = md.groupby(sample_id_col)[age_col].first()
@@ -374,12 +401,12 @@ def compute_trajectory_analysis(
     # Handle missing values
     if np.isnan(age_values).any():
         n_missing = int(np.isnan(age_values).sum())
-        print(f"  Warning: {n_missing} samples have missing {age_col} values; imputing with mean.")
+        print(f"   Warning: {n_missing} samples have missing {age_col} values; imputing with mean.")
         mean_age = np.nanmean(age_values)
         age_values = np.where(np.isnan(age_values), mean_age, age_values)
     
-    # Use only the first 2 dimensions (PC1 and PC2)
-    coords_2d = emb[:, [0, 1]]
+    # Use the 2D embedding directly
+    coords_2d = emb
     
     # Fit CCA
     age_2d = age_values.reshape(-1, 1)
@@ -437,7 +464,6 @@ def permutation_test_paired_distance(
                 vec2 = emb[shuffled_idx[i + 1]].reshape(1, -1)
                 dist = cdist(vec1, vec2, metric=metric)[0, 0]
                 perm_distances.append(dist)
-        
         if perm_distances:
             null_means.append(np.mean(perm_distances))
     
@@ -538,14 +564,14 @@ def permutation_test_trajectory(
         mean_age = np.nanmean(age_values)
         age_values = np.where(np.isnan(age_values), mean_age, age_values)
     
-    coords_2d = emb[:, [0, 1]]
+    coords_2d = emb  # Should already be 2D
     null_ccas = []
     
     for _ in range(n_permutations):
         # Shuffle age labels
         perm_age = rng.permutation(age_values)
-        
         age_2d = perm_age.reshape(-1, 1)
+        
         cca = CCA(n_components=1)
         cca.fit(coords_2d, age_2d)
         U, V = cca.transform(coords_2d, age_2d)
@@ -562,15 +588,18 @@ def permutation_test_trajectory(
         "null_distribution": null_ccas.tolist(),
     }
 
+
 # =============================================================================
 # Enhanced Visualization Functions
 # =============================================================================
+
 def reduce_to_2d(emb: np.ndarray) -> np.ndarray:
     """Reduce embedding to 2D using PCA if necessary."""
     if emb.shape[1] <= 2:
         if emb.shape[1] == 1:
             return np.column_stack([emb, np.zeros(emb.shape[0])])
         return emb[:, :2]
+    
     pca = PCA(n_components=2)
     return pca.fit_transform(emb)
 
@@ -594,7 +623,8 @@ def plot_embedding_by_modality(
         mask = modalities == mod
         color = config.modality_colors.get(mod, '#333333')
         ax.scatter(
-            emb_2d[mask, 0], emb_2d[mask, 1],
+            emb_2d[mask, 0],
+            emb_2d[mask, 1],
             s=50,
             c=color,
             alpha=0.7,
@@ -608,8 +638,10 @@ def plot_embedding_by_modality(
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
+    
     for spine in ax.spines.values():
         spine.set_linewidth(0.8)
+    
     ax.set_aspect(1.0, adjustable='box')
     
     # Equal aspect ratio with padding
@@ -690,7 +722,8 @@ def plot_paired_connections(
         color = config.modality_colors.get(mod, '#333333')
         marker = markers.get(mod, 'o')
         ax.scatter(
-            emb_2d[mask, 0], emb_2d[mask, 1],
+            emb_2d[mask, 0],
+            emb_2d[mask, 1],
             s=50,
             c=color,
             alpha=0.7,
@@ -705,8 +738,10 @@ def plot_paired_connections(
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
+    
     for spine in ax.spines.values():
         spine.set_linewidth(0.8)
+    
     ax.set_aspect(1.0, adjustable='box')
     
     # Equal aspect ratio with padding
@@ -725,13 +760,13 @@ def plot_paired_connections(
     ax.set_ylim(cy - half_range, cy + half_range)
     
     legend_elements = [
-        Line2D([0], [0], marker='o', color='w', 
+        Line2D([0], [0], marker='o', color='w',
                markerfacecolor=config.modality_colors.get('RNA', '#3498db'),
                markersize=10, label='RNA', markeredgecolor='none'),
-        Line2D([0], [0], marker='s', color='w', 
+        Line2D([0], [0], marker='s', color='w',
                markerfacecolor=config.modality_colors.get('ATAC', '#e74c3c'),
                markersize=10, label='ATAC', markeredgecolor='none'),
-        Line2D([0], [0], color=config.connection_color, linewidth=2.5, 
+        Line2D([0], [0], color=config.connection_color, linewidth=2.5,
                alpha=0.7, label='Paired connection'),
     ]
     
@@ -749,6 +784,7 @@ def plot_paired_connections(
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
     fig.savefig(output_path.replace('.png', '.pdf'), dpi=300, bbox_inches='tight')
     plt.close(fig)
+
 
 def plot_trajectory_analysis(
     emb_2d: np.ndarray,
@@ -790,7 +826,8 @@ def plot_trajectory_analysis(
     
     # Use raw age values for color mapping
     sc1 = ax1.scatter(
-        emb_2d[:, 0], emb_2d[:, 1],
+        emb_2d[:, 0],
+        emb_2d[:, 1],
         c=age_values,
         cmap=config.age_cmap,
         s=50,
@@ -804,8 +841,10 @@ def plot_trajectory_analysis(
     ax1.grid(False)
     ax1.set_xticks([])
     ax1.set_yticks([])
+    
     for spine in ax1.spines.values():
         spine.set_linewidth(0.8)
+    
     ax1.set_aspect(1.0, adjustable='box')
     
     # Equal aspect ratio with padding
@@ -858,7 +897,6 @@ def plot_trajectory_analysis(
     
     # 2. Box plot by trajectory variable
     ax2 = plt.subplot(2, 2, 2)
-    # Create boxplot data
     unique_ages = sorted(np.unique(age_values))
     box_data = [pseudotime[age_values == age] for age in unique_ages]
     bp = ax2.boxplot(box_data, positions=range(len(unique_ages)), patch_artist=True)
@@ -908,14 +946,13 @@ def plot_trajectory_analysis(
     for i in range(2):
         text_val = corr_data[0, i]
         text_color = 'white' if text_val > 0.5 else 'black'
-        ax4.text(i, 0, f'{text_val:.3f}', 
-                ha='center', va='center', color=text_color, fontsize=12, fontweight='bold')
+        ax4.text(i, 0, f'{text_val:.3f}', ha='center', va='center',
+                color=text_color, fontsize=12, fontweight='bold')
     
     # Colorbar
     cbar = plt.colorbar(im, ax=ax4, fraction=0.046, pad=0.04)
     cbar.set_label('|Correlation|')
     cbar.outline.set_linewidth(0.8)
-    
     for spine in ax4.spines.values():
         spine.set_linewidth(0.8)
     
@@ -935,15 +972,23 @@ def create_all_visualizations(
     sample_id_col: str = "sample_id",
     modality_col: str = "modality",
 ) -> Dict[str, str]:
-    """Create all visualization plots for a method."""
+    """
+    Create all visualization plots for a method.
+    
+    NOTE: emb can be full dimensional - will be reduced for visualization.
+    """
     emb_2d = reduce_to_2d(emb)
+    
     viz_dir = method_outdir / "visualizations"
     viz_dir.mkdir(parents=True, exist_ok=True)
     
     # Plot 1: By modality
     modality_path = viz_dir / f"{method_name}_by_modality.png"
     plot_embedding_by_modality(
-        emb_2d, md, str(modality_path), config,
+        emb_2d,
+        md,
+        str(modality_path),
+        config,
         modality_col=modality_col,
         method_name=method_name,
     )
@@ -951,7 +996,10 @@ def create_all_visualizations(
     # Plot 2: Paired connections
     paired_path = viz_dir / f"{method_name}_paired_connections.png"
     plot_paired_connections(
-        emb_2d, md, str(paired_path), config,
+        emb_2d,
+        md,
+        str(paired_path),
+        config,
         sample_id_col=sample_id_col,
         modality_col=modality_col,
         method_name=method_name,
@@ -960,7 +1008,10 @@ def create_all_visualizations(
     # Plot 3: Trajectory analysis (creates 2 files)
     trajectory_path = viz_dir / f"{method_name}_trajectory.png"
     plot_trajectory_analysis(
-        emb_2d, trajectory_results, str(trajectory_path), config,
+        emb_2d,
+        trajectory_results,
+        str(trajectory_path),
+        config,
         method_name=method_name,
     )
     
@@ -1000,6 +1051,8 @@ def evaluate_multimodal_integration(
     """
     Evaluate multimodal integration quality with trajectory analysis.
     
+    **KEY CHANGE: All metrics are computed using only the first 2 dimensions.**
+    
     Parameters
     ----------
     meta_csv : str
@@ -1033,7 +1086,7 @@ def evaluate_multimodal_integration(
         Whether to create visualization plots
     config : BenchmarkConfig, optional
         Configuration object (created with defaults if not provided)
-        
+    
     Returns
     -------
     Dict with all metrics and paths to saved files
@@ -1045,6 +1098,7 @@ def evaluate_multimodal_integration(
             include_self=include_self,
             n_permutations=n_permutations,
             random_seed=random_seed,
+            n_dims_for_metrics=2,  # Use first 2 dims for metrics
         )
     
     # Setup output directories
@@ -1059,7 +1113,6 @@ def evaluate_multimodal_integration(
     print(f"\n{'='*60}")
     print(f"Evaluating method: {method_name}")
     print(f"{'='*60}")
-    
     print(f"Loading metadata from: {meta_csv}")
     md = read_metadata(meta_csv, modalities=modalities)
     
@@ -1067,9 +1120,16 @@ def evaluate_multimodal_integration(
     emb_df = read_embedding(embedding_csv)
     
     md_aligned, emb_aligned = align_data(md, emb_df)
-    emb_array = emb_aligned.values.astype(float)
     
-    print(f"Aligned data: {len(md_aligned)} samples, {emb_array.shape[1]} dimensions")
+    # CRITICAL: Extract full embedding for visualization
+    emb_array_full = emb_aligned.values.astype(float)
+    
+    # CRITICAL: Extract only first 2 dims for ALL metric calculations
+    emb_array_2d = extract_first_n_dims(emb_array_full, n_dims=config.n_dims_for_metrics)
+    
+    print(f"Aligned data: {len(md_aligned)} samples")
+    print(f"Full embedding dimensions: {emb_array_full.shape[1]}")
+    print(f"Using first {config.n_dims_for_metrics} dimensions for all metrics")
     print(f"Detected modalities: {sorted(md_aligned[modality_col].unique())}")
     print(f"Number of unique biological samples: {md_aligned[sample_id_col].nunique()}")
     
@@ -1080,38 +1140,41 @@ def evaluate_multimodal_integration(
     age_range = md_aligned[age_col].dropna()
     print(f"Age range: {age_range.min():.1f} - {age_range.max():.1f}")
     
-    # Compute all metrics
-    print("\n1. Computing paired sample distances...")
+    # Compute all metrics using ONLY first 2 dimensions
+    print(f"\n1. Computing paired sample distances (using first {config.n_dims_for_metrics} dims)...")
     paired_results = compute_paired_distance(
-        md_aligned, emb_array,
+        md_aligned,
+        emb_array_2d,  # Use 2D embedding
         sample_id_col=sample_id_col,
         modality_col=modality_col,
         metric=distance_metric,
     )
     
-    print("\n2. Computing modality mixing (iLISI, ASW)...")
+    print(f"\n2. Computing modality mixing (iLISI, ASW) (using first {config.n_dims_for_metrics} dims)...")
     mixing_results = compute_modality_mixing(
-        md_aligned, emb_array,
+        md_aligned,
+        emb_array_2d,  # Use 2D embedding
         modality_col=modality_col,
         k=k_neighbors,
         include_self=include_self,
     )
     
-    print(f"\n3. Computing trajectory analysis ({age_col}) using PC1 & PC2...")
+    print(f"\n3. Computing trajectory analysis ({age_col}) (using first {config.n_dims_for_metrics} dims)...")
     trajectory_results = compute_trajectory_analysis(
-        md_aligned, emb_array,
+        md_aligned,
+        emb_array_2d,  # Use 2D embedding
         age_col=age_col,
         sample_id_col=sample_id_col,
     )
-    print(f"  CCA score (PC1 & PC2): {trajectory_results['cca_score']:.4f}")
-    print(f"  Pseudotime-age correlation: {trajectory_results['pseudotime_age_correlation']:.4f}")
+    print(f"   CCA score: {trajectory_results['cca_score']:.4f}")
+    print(f"   Pseudotime-age correlation: {trajectory_results['pseudotime_age_correlation']:.4f}")
     
-    # Permutation testing
+    # Permutation testing (using 2D embedding)
     print("\n4. Running permutation tests...")
-    
     print("   - Paired distance permutation test...")
     paired_perm = permutation_test_paired_distance(
-        md_aligned, emb_array,
+        md_aligned,
+        emb_array_2d,  # Use 2D embedding
         paired_results['mean_paired_distance'],
         paired_results['paired_indices'],
         n_permutations=n_permutations,
@@ -1121,7 +1184,8 @@ def evaluate_multimodal_integration(
     
     print("   - Modality mixing permutation test...")
     mixing_perm = permutation_test_modality_mixing(
-        md_aligned, emb_array,
+        md_aligned,
+        emb_array_2d,  # Use 2D embedding
         mixing_results['iLISI_norm_mean'],
         mixing_results['ASW_modality_overall'],
         modality_col=modality_col,
@@ -1132,7 +1196,8 @@ def evaluate_multimodal_integration(
     
     print("   - Trajectory CCA permutation test...")
     trajectory_perm = permutation_test_trajectory(
-        md_aligned, emb_array,
+        md_aligned,
+        emb_array_2d,  # Use 2D embedding
         trajectory_results['cca_score'],
         age_col=age_col,
         sample_id_col=sample_id_col,
@@ -1140,13 +1205,17 @@ def evaluate_multimodal_integration(
         random_seed=random_seed,
     )
     
-    # Create visualizations
+    # Create visualizations (using FULL embedding - will be reduced internally)
     viz_paths = {}
     if create_visualizations:
-        print("\n5. Creating visualizations...")
+        print("\n5. Creating visualizations (using full embedding)...")
         viz_paths = create_all_visualizations(
-            emb_array, md_aligned, trajectory_results,
-            method_outdir, method_name, config,
+            emb_array_full,  # Use FULL embedding for visualization
+            md_aligned,
+            trajectory_results,
+            method_outdir,
+            method_name,
+            config,
             sample_id_col=sample_id_col,
             modality_col=modality_col,
         )
@@ -1165,7 +1234,6 @@ def evaluate_multimodal_integration(
         "iLISI": mixing_results["iLISI_per_sample"],
         "ASW_modality": mixing_results["ASW_per_sample"],
     }).set_index("sample")
-    
     per_sample_path = method_outdir / "per_sample_metrics.csv"
     per_sample_df.to_csv(per_sample_path)
     
@@ -1185,10 +1253,11 @@ def evaluate_multimodal_integration(
         f"Total samples: {len(md_aligned)}",
         f"Unique biological samples: {md_aligned[sample_id_col].nunique()}",
         f"Modalities: {sorted(md_aligned[modality_col].unique())}",
-        f"Embedding dimensions: {emb_array.shape[1]}",
+        f"Full embedding dimensions: {emb_array_full.shape[1]}",
+        f"Dimensions used for metrics: {config.n_dims_for_metrics} (first {config.n_dims_for_metrics} only)",
         f"Permutations: {n_permutations}",
         "",
-        "--- KEY METRICS ---",
+        "--- KEY METRICS (computed on first 2 dims) ---",
         "",
         "1. Mean Paired Distance (lower = better)",
         f"   Value: {paired_results['mean_paired_distance']:.4f}",
@@ -1205,21 +1274,21 @@ def evaluate_multimodal_integration(
         "--- ADDITIONAL DETAILS ---",
         "",
         "Paired Sample Distance:",
-        f"  Number of pairs: {paired_results['n_pairs']}",
-        f"  Std paired distance: {paired_results['std_paired_distance']:.4f}",
-        f"  Median paired distance: {paired_results['median_paired_distance']:.4f}",
+        f"   Number of pairs: {paired_results['n_pairs']}",
+        f"   Std paired distance: {paired_results['std_paired_distance']:.4f}",
+        f"   Median paired distance: {paired_results['median_paired_distance']:.4f}",
         "",
         "Modality Mixing:",
-        f"  Modalities: {mixing_results['modalities']}",
-        f"  iLISI mean: {mixing_results['iLISI_mean']:.4f}",
-        f"  iLISI normalized: {mixing_results['iLISI_norm_mean']:.4f}",
-        f"  iLISI P-value: {mixing_perm['iLISI_p_value']:.2e}",
+        f"   Modalities: {mixing_results['modalities']}",
+        f"   iLISI mean: {mixing_results['iLISI_mean']:.4f}",
+        f"   iLISI normalized: {mixing_results['iLISI_norm_mean']:.4f}",
+        f"   iLISI P-value: {mixing_perm['iLISI_p_value']:.2e}",
         "",
         "Trajectory Analysis:",
-        f"  Age column: {age_col}",
-        f"  Age range: {trajectory_results['age_range'][0]:.1f} - {trajectory_results['age_range'][1]:.1f}",
-        f"  CCA score: {trajectory_results['cca_score']:.4f}",
-        f"  Pseudotime-age correlation: {trajectory_results['pseudotime_age_correlation']:.4f}",
+        f"   Age column: {age_col}",
+        f"   Age range: {trajectory_results['age_range'][0]:.1f} - {trajectory_results['age_range'][1]:.1f}",
+        f"   CCA score: {trajectory_results['cca_score']:.4f}",
+        f"   Pseudotime-age correlation: {trajectory_results['pseudotime_age_correlation']:.4f}",
         "",
         "=" * 60,
         f"Results saved to: {method_outdir}",
@@ -1236,26 +1305,35 @@ def evaluate_multimodal_integration(
     return {
         # Method identifier
         "method_name": method_name,
+        
         # Core metrics for summary CSV aggregation
         "n_samples": len(md_aligned),
         "n_pairs": paired_results["n_pairs"],
+        "n_dims_used": config.n_dims_for_metrics,
+        "n_dims_full": emb_array_full.shape[1],
+        
         "mean_paired_distance": paired_results["mean_paired_distance"],
         "std_paired_distance": paired_results["std_paired_distance"],
         "median_paired_distance": paired_results["median_paired_distance"],
         "paired_distance_pvalue": paired_perm["p_value"],
+        
         "iLISI_mean": mixing_results["iLISI_mean"],
         "iLISI_norm_mean": mixing_results["iLISI_norm_mean"],
         "iLISI_pvalue": mixing_perm["iLISI_p_value"],
+        
         "ASW_modality_overall": mixing_results["ASW_modality_overall"],
         "ASW_pvalue": mixing_perm["ASW_p_value"],
+        
         "cca_score": trajectory_results["cca_score"],
         "cca_pvalue": trajectory_perm["p_value"],
         "pseudotime_age_correlation": trajectory_results["pseudotime_age_correlation"],
+        
         # Metadata
         "n_modalities": mixing_results["n_modalities"],
         "modalities": mixing_results["modalities"],
         "age_col": age_col,
         "age_range": trajectory_results["age_range"],
+        
         # File paths
         "method_outdir": str(method_outdir),
         "per_sample_path": str(per_sample_path),
@@ -1277,8 +1355,8 @@ def save_to_summary_csv(
     Save results to a summary CSV file, appending as a new column.
     
     Structure:
-    - Rows: metric names
-    - Columns: method_name
+      - Rows: metric names
+      - Columns: method_name
     """
     summary_path = Path(summary_csv_path)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1289,6 +1367,8 @@ def save_to_summary_csv(
     metrics_to_save = {
         "n_samples": results.get("n_samples"),
         "n_pairs": results.get("n_pairs"),
+        "n_dims_used": results.get("n_dims_used"),
+        "n_dims_full": results.get("n_dims_full"),
         "mean_paired_distance": results.get("mean_paired_distance"),
         "median_paired_distance": results.get("median_paired_distance"),
         "paired_distance_pvalue": results.get("paired_distance_pvalue"),
@@ -1322,24 +1402,25 @@ def save_to_summary_csv(
 
 # =============================================================================
 # Main execution
-# =============================================================================import os
-
+# =============================================================================
 if __name__ == '__main__':
+    
     # =========================
     # Easy-to-change variables
     # =========================
-    DATASET = "lutea"  # <-- change this next time (e.g., "retina", "lutea", ...)
+    DATASET = "retina"  # <-- change this next time (e.g., "retina", "lutea", ...)
+    
     BASE_DIR = "/dcs07/hongkai/data/harry/result/multi_omics_eye"
     META_CSV = os.path.join(BASE_DIR, "data", "scMultiomics_database.csv")
-
+    
     # Output dir + summary
-    general_outdir = os.path.join(BASE_DIR, f"benchmark_{DATASET}")
-    summary_csv_path = os.path.join(general_outdir, "Benchmark_result", "summary.csv")
-
+    general_outdir = os.path.join(BASE_DIR, f"benchmark_{DATASET}_2d")  # New output dir
+    summary_csv_path = os.path.join(general_outdir, "summary.csv")
+    
     # Helper to build embedding paths under general_outdir
     def emb(*parts):
-        return os.path.join(general_outdir, *parts)
-
+        return os.path.join(BASE_DIR, f"benchmark_{DATASET}", *parts)  # Read from original dir
+    
     # -------------------------
     # SD_expression
     # -------------------------
@@ -1351,7 +1432,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # SD_proportion
     # -------------------------
@@ -1363,7 +1444,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # pilot
     # -------------------------
@@ -1375,7 +1456,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # pseudobulk
     # -------------------------
@@ -1387,7 +1468,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # QOT
     # -------------------------
@@ -1399,7 +1480,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # GEDI
     # -------------------------
@@ -1411,7 +1492,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # Gloscope
     # -------------------------
@@ -1423,7 +1504,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # MFA
     # -------------------------
@@ -1435,7 +1516,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # mustard
     # -------------------------
@@ -1447,7 +1528,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     # -------------------------
     # scPoli
     # -------------------------
@@ -1459,7 +1540,7 @@ if __name__ == '__main__':
         k_neighbors=3,
     )
     save_to_summary_csv(results, summary_csv_path)
-
+    
     print("\n" + "=" * 60)
     print("Benchmark suite completed!")
     print(f"Summary saved to: {summary_csv_path}")
