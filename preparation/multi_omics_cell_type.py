@@ -16,7 +16,7 @@ from utils.safe_save import safe_h5ad_write, ensure_cpu_arrays
 from utils.imbalance_cell_type_handeler import filter_modality_imbalanced_clusters
 
 
-def cell_types_multiomics_linux(
+def cell_types_multiomics(
     adata,
     modality_column="modality",
     rna_modality_value="RNA",
