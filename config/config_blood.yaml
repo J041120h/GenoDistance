@@ -1,12 +1,12 @@
 # =============================================================================
 # MAIN CONFIGURATION
 # =============================================================================
-output_dir: "/dcs07/hongkai/data/harry/result/multi_omics_unpaired"
+output_dir: "/dcs07/hongkai/data/harry/result/1M-scBloodNL"
 
 # Pipeline selection
-run_rna_pipeline: false
+run_rna_pipeline: true
 run_atac_pipeline: false
-run_multiomics_pipeline: true
+run_multiomics_pipeline: false
 
 # General settings
 use_gpu: true
@@ -20,39 +20,39 @@ large_data_need_extra_memory: false
 # =============================================================================
 
 # --- Input/Output Paths ---
-rna_count_data_path: "/dcs07/hongkai/data/harry/result/multi_omics_unpaired/multiomics/preprocess/atac_rna_integrated.h5ad"
+rna_count_data_path: "/dcs07/hongkai/data/harry/result/1M-scBloodNL/data/1M-scBloodNL.h5ad"
 rna_output_dir: null  # defaults to {output_dir}/rna
 
 # --- Pipeline Control Flags ---
-rna_preprocessing: false
+rna_preprocessing: true
 rna_cell_type_cluster: false
-rna_derive_sample_embedding: false
+rna_derive_sample_embedding: true
 rna_cca_based_cell_resolution_selection: false
 rna_sample_distance_calculation: false
-rna_trajectory_analysis: true
+rna_trajectory_analysis: false
 rna_trajectory_dge: false
 rna_sample_cluster: false
 rna_proportion_test: false
 rna_cluster_dge: false
-rna_visualize_data: false
+rna_visualize_data: true
 rna_phenotype_prediction: false
 rna_dimension_association_analysis: false
 
 # --- Resume Paths (for skipping preprocessing) ---
 rna_adata_cell_path: null
 rna_adata_sample_path: null
-rna_sample_meta_path: "/dcl01/hongkai/data/data/hjiang/Data/merged_rna_atac_metadata.csv"
+rna_sample_meta_path: null
 rna_cell_meta_path: null
-rna_pseudo_adata_path: "/dcs07/hongkai/data/harry/result/multi_omics_unpaired/rna/pseudobulk/pseudobulk_sample.h5ad"
+rna_pseudo_adata_path: null
 
 # --- Common Column Names ---
-rna_sample_col: "sample"
-rna_sample_level_batch_col: null  # Can be string or list of strings
+rna_sample_col: "id"
+rna_sample_level_batch_col: 'chem'
 rna_celltype_col: "cell_type"
 
 # --- Preprocessing Parameters ---
-rna_min_cells: 500
-rna_min_genes: 500
+rna_min_cells: 100
+rna_min_genes: 100
 rna_pct_mito_cutoff: 20.0
 rna_exclude_genes: null
 rna_num_cell_hvgs: 2000
@@ -61,7 +61,7 @@ rna_num_harmony_iterations: 30
 rna_cell_level_batch_key: null
 
 # --- Cell Type Clustering Parameters ---
-rna_leiden_cluster_resolution: 0.99
+rna_leiden_cluster_resolution: 0.8
 rna_cell_embedding_column: null
 rna_existing_cell_types: false
 rna_n_target_cell_clusters: null
@@ -266,15 +266,15 @@ atac_association_n_permutations: 999
 # =============================================================================
 
 # --- Input/Output Paths ---
-multiomics_rna_file: "/dcl01/hongkai/data/data/hjiang/Data/covid_data/count_data.h5ad"
-multiomics_atac_file: "/dcl01/hongkai/data/data/hjiang/Data/ATAC.h5ad"
+multiomics_rna_file: "/dcl01/hongkai/data/data/hjiang/Data/test_RNA.h5ad"
+multiomics_atac_file: "/dcl01/hongkai/data/data/hjiang/Data/test_ATAC.h5ad"
 multiomics_output_dir: null  # defaults to {output_dir}/multiomics
 
 # --- Pipeline Control Flags (Preprocessing & Resolution) ---
 multiomics_integration: false
-multiomics_integration_preprocessing: true
-multiomics_dimensionality_reduction: true
-multiomics_find_optimal_resolution: true
+multiomics_integration_preprocessing: false
+multiomics_dimensionality_reduction: false
+multiomics_find_optimal_resolution: false
 
 # --- Pipeline Control Flags (Downstream) ---
 multiomics_sample_distance_calculation: false
@@ -284,8 +284,8 @@ multiomics_sample_cluster: false
 multiomics_proportion_test: false
 multiomics_cluster_dge: false
 multiomics_visualize_embedding: true
-multiomics_phenotype_prediction: true
-multiomics_dimension_association_analysis: true
+multiomics_phenotype_prediction: false
+multiomics_dimension_association_analysis: false
 
 # --- GLUE Sub-Pipeline Flags ---
 multiomics_run_glue_preprocessing: true
@@ -295,11 +295,11 @@ multiomics_cell_type_cluster: true
 multiomics_run_glue_visualization: true
 
 # --- Resume Paths (for skipping steps) ---
-multiomics_integrated_h5ad_path: "/dcs07/hongkai/data/harry/result/multi_omics_unpaired/multiomics/preprocess/atac_rna_integrated.h5ad"
-multiomics_pseudobulk_h5ad_path: "/dcs07/hongkai/data/harry/result/multi_omics_unpaired/multiomics/pseudobulk/pseudobulk_sample.h5ad"
+multiomics_integrated_h5ad_path: null
+multiomics_pseudobulk_h5ad_path: null
 multiomics_rna_sample_meta_file: null
 multiomics_atac_sample_meta_file: null
-multiomics_additional_hvg_file: null
+multiomics_additional_hvg_file: "/dcl01/hongkai/data/data/hjiang/Data/multi_omics_testing/unique_genes.txt"
 
 # --- Common Column Names ---
 multiomics_rna_sample_column: "sample"
